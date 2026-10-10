@@ -2,14 +2,27 @@
 
 A static page that builds a 1080 × 1350 social post from the Figma frame "Full bleed date" and downloads it as a JPEG. Everything runs in the browser, so no images are uploaded anywhere.
 
-## Layers
+## Templates
 
+Pick one from the Template dropdown. Each one is defined in the `TEMPLATES` object in `index.html`.
+
+**Full bleed photo** (Figma frame "Full bleed date")
 1. Photo (uploaded, fills the frame, with zoom and position controls)
 2. Gradient (fixed)
 3. Logo (`assets/logo.svg`, fixed)
 4. Heading (Wilden 80px, #ffa74f)
 5. Summary (PT Serif 40px, #f7dfba)
 6. Call to action (Wilden 40px, #f0531c)
+
+**Message** (Figma frame "Message")
+1. Green background (#2e4b3c, fixed)
+2. Heading (Wilden 80px, #fbeed9, centred in the frame)
+3. Call to action (Wilden 50px, #fbeed9)
+4. Leaves (`assets/leaves.svg`, fixed)
+
+## Adding a template
+
+Add an entry to `TEMPLATES` with its `fields`, text `styles`, a `drawBackground()` (and optional `drawForeground()`), and a `place()` function that returns the top of each text block. Then add a matching `<option>` to the Template dropdown.
 
 ## Run locally
 
@@ -28,7 +41,7 @@ Then open http://localhost:4173. Opening `index.html` directly from disk will no
 
 ## Changing the design
 
-All sizes, colours and spacing sit in the constants at the top of the `<script>` in `index.html`.
+All sizes, colours and spacing for each template sit in `TEMPLATES` at the top of the `<script>` in `index.html`.
 
 ## Font licence
 

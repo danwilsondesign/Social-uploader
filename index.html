@@ -85,7 +85,9 @@
   }
   label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
   .hint { font-weight: 400; color: var(--muted); font-size: 13px; }
-  input[type="text"], textarea {
+  .group { display: grid; gap: 18px; }
+  [hidden] { display: none !important; }
+  input[type="text"], textarea, select {
     font: inherit;
     font-weight: 400;
     padding: 10px 12px;
@@ -166,23 +168,31 @@
     <h1>Social post builder</h1>
     <p class="intro">Click the text on the preview to edit it, or use the fields below. Then download a 1080 × 1350 JPEG.</p>
     <form id="form" autocomplete="off">
-      <label>Image
-        <input type="file" id="image" accept="image/*">
-        <span class="hint">Fills the frame. Use the controls below to reframe it.</span>
+      <label>Template
+        <select id="template">
+          <option value="photo">Full bleed photo</option>
+          <option value="message">Message</option>
+        </select>
       </label>
-      <fieldset>
-        <legend>Image framing</legend>
-        <label>Zoom <input type="range" id="zoom" min="1" max="3" step="0.01" value="1"></label>
-        <label>Horizontal position <input type="range" id="posX" min="0" max="100" step="1" value="50"></label>
-        <label>Vertical position <input type="range" id="posY" min="0" max="100" step="1" value="50"></label>
-      </fieldset>
-      <label>Heading
+      <div class="group" data-photo-controls>
+        <label>Image
+          <input type="file" id="image" accept="image/*">
+          <span class="hint">Fills the frame. Use the controls below to reframe it.</span>
+        </label>
+        <fieldset>
+          <legend>Image framing</legend>
+          <label>Zoom <input type="range" id="zoom" min="1" max="3" step="0.01" value="1"></label>
+          <label>Horizontal position <input type="range" id="posX" min="0" max="100" step="1" value="50"></label>
+          <label>Vertical position <input type="range" id="posY" min="0" max="100" step="1" value="50"></label>
+        </fieldset>
+      </div>
+      <label data-field-row="heading">Heading
         <textarea id="heading" rows="2">Large heading goes here</textarea>
       </label>
-      <label>Summary
+      <label data-field-row="summary">Summary
         <textarea id="summary" rows="2">Description text goes here</textarea>
       </label>
-      <label>Call to action
+      <label data-field-row="cta">Call to action
         <textarea id="cta" rows="1">Sunday 6th dec</textarea>
       </label>
       <button type="button" id="download" data-download>Download JPEG</button>
@@ -202,22 +212,8 @@
 </main>
 
 <script>
-// Values taken from the Figma frame "Full bleed date" (1080 × 1350).
-const W = 1080, H = 1350, PAD = 100;
-const CONTENT_W = 913.846;
-const LOGO = { w: 112.758, h: 112.758, slotH: 110.769 };
-const GAP = 40;
+const W = 1080, H = 1350;
 const SHADOW = { y: 11.077, blur: 55.385, colour: "rgba(0,0,0,0.2)" };
-const STYLES = {
-  heading: { family: '"Wilden"', size: 80, lineHeight: 80, tracking: 12, colour: "#ffa74f", width: CONTENT_W, shadow: true, trimmed: true },
-  summary: { family: '"PT Serif"', size: 40, lineHeight: 60, tracking: 0, colour: "#f7dfba", width: CONTENT_W, shadow: true },
-  cta:     { family: '"Wilden"', size: 40, lineHeight: 40, tracking: 6, colour: "#f0531c", width: 780, shadow: false },
-};
-const FIELDS = ["heading", "summary", "cta"];
-
-// Field currently being edited on the preview, and where each text block was last drawn.
-let editing = null;
-let layout = {};
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -225,6 +221,80 @@ const $ = (id) => document.getElementById(id);
 
 let photo = null;
 const logo = new Image();
+const leaves = new Image();
+
+// Each template sets its fields, text styles, background and where its text blocks sit.
+// place() gets the laid-out blocks (keyed by field) and returns each block's top edge.
+// Values are taken from the matching Figma frames (1080 × 1350).
+const TEMPLATES = {
+  // Figma frame "Full bleed date"
+  photo: {
+    fields: ["heading", "summary", "cta"],
+    usesPhoto: true,
+    styles: {
+      heading: { family: '"Wilden"', size: 80, lineHeight: 80, tracking: 12, colour: "#ffa74f", width: 913.846, shadow: true, trimmed: true },
+      summary: { family: '"PT Serif"', size: 40, lineHeight: 60, tracking: 0, colour: "#f7dfba", width: 913.846, shadow: true },
+      cta:     { family: '"Wilden"', size: 40, lineHeight: 40, tracking: 6, colour: "#f0531c", width: 780, shadow: false },
+    },
+    drawBackground() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, W, H);
+      if (photo) drawCover(photo);
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, "rgba(0,0,0,0.3)");
+      grad.addColorStop(0.3, "rgba(0,0,0,0)");
+      grad.addColorStop(1, "rgba(0,0,0,0.9)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+      // Logo SVG is 112.758 square in a 110.769 tall slot at the top padding.
+      if (logo.complete && logo.naturalWidth) {
+        ctx.drawImage(logo, (W - 112.758) / 2, 100 - (112.758 - 110.769) / 2, 112.758, 112.758);
+      }
+    },
+    // Text stack is anchored to the bottom padding (100), stacking upwards with 40 gaps.
+    place(blocks) {
+      const list = Object.values(blocks);
+      const GAP = 40;
+      const total = list.reduce((sum, b) => sum + b.height, 0) + GAP * (list.length - 1);
+      let y = H - 100 - total;
+      const tops = {};
+      for (const b of list) { tops[b.name] = y; y += b.height + GAP; }
+      return tops;
+    },
+  },
+
+  // Figma frame "Message"
+  message: {
+    fields: ["heading", "cta"],
+    usesPhoto: false,
+    styles: {
+      heading: { family: '"Wilden"', size: 80, lineHeight: 104, tracking: 12, colour: "#fbeed9", width: 771, shadow: true },
+      cta:     { family: '"Wilden"', size: 50, lineHeight: 50, tracking: 5, colour: "#fbeed9", width: 913.846, shadow: true, trimmed: true },
+    },
+    drawBackground() {
+      ctx.fillStyle = "#2e4b3c";
+      ctx.fillRect(0, 0, W, H);
+    },
+    // Leaves sit above the text in Figma.
+    drawForeground() {
+      if (leaves.complete && leaves.naturalWidth) ctx.drawImage(leaves, 46, 45, 967.304, 1255.244);
+    },
+    // Heading is centred in the frame; the CTA's cap height starts at y 1115.
+    place(blocks) {
+      const tops = {};
+      if (blocks.heading) tops.heading = (H - blocks.heading.height) / 2;
+      if (blocks.cta) tops.cta = 1115;
+      return tops;
+    },
+  },
+};
+
+let template = TEMPLATES.photo;
+const styleOf = (field) => template.styles[field];
+
+// Field currently being edited on the preview, and where each text block was last drawn.
+let editing = null;
+let layout = {};
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -310,38 +380,25 @@ function block(text, style) {
 // forExport leaves empty fields out entirely; the preview keeps a placeholder for them.
 function render(forExport = false) {
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, H);
+  template.drawBackground();
 
-  if (photo) drawCover(photo);
-
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, "rgba(0,0,0,0.3)");
-  grad.addColorStop(0.3, "rgba(0,0,0,0)");
-  grad.addColorStop(1, "rgba(0,0,0,0.9)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  if (logo.complete && logo.naturalWidth) {
-    const top = PAD - (LOGO.h - LOGO.slotH) / 2;
-    ctx.drawImage(logo, (W - LOGO.w) / 2, top, LOGO.w, LOGO.h);
+  // In the preview an empty field keeps one line of space, so there is always something to click.
+  const blocks = {};
+  for (const name of template.fields) {
+    const b = { name, ...block($(name).value, styleOf(name)) };
+    if (!forExport || !b.empty) blocks[name] = b;
   }
 
-  // Text stack is anchored to the bottom padding, stacking upwards.
-  // In the preview an empty field keeps one line of space, so there is always something to click.
-  const blocks = FIELDS
-    .map((name) => ({ name, ...block($(name).value, STYLES[name]) }))
-    .filter((b) => !forExport || !b.empty);
-
-  const total = blocks.reduce((sum, b) => sum + b.height, 0) + GAP * (blocks.length - 1);
-  let y = H - PAD - total;
+  const tops = template.place(blocks);
   layout = {};
-  for (const b of blocks) {
+  for (const b of Object.values(blocks)) {
+    const y = tops[b.name];
     layout[b.name] = { top: y + b.boxOffset, height: b.boxHeight, empty: b.empty };
     // The field being edited is shown by the editor instead.
     if (b.name !== editing) b.draw(y);
-    y += b.height + GAP;
   }
+
+  template.drawForeground?.();
   positionOverlays();
 }
 
@@ -356,7 +413,7 @@ function positionOverlays() {
     if (hit.hidden) return;
     hit.classList.toggle("empty", box.empty);
     hit.textContent = box.empty ? "Add " + hit.getAttribute("aria-label").replace(/^Edit /, "") : "";
-    const w = STYLES[hit.dataset.field].width + HIT_PAD * 2;
+    const w = styleOf(hit.dataset.field).width + HIT_PAD * 2;
     Object.assign(hit.style, {
       left: (W - w) / 2 * s + "px",
       top: (box.top - HIT_PAD) * s + "px",
@@ -368,7 +425,7 @@ function positionOverlays() {
   const editor = $("editor");
   const box = editing && layout[editing];
   if (!box) return;
-  const st = STYLES[editing];
+  const st = styleOf(editing);
   Object.assign(editor.style, {
     left: ((W - st.width) / 2 + st.tracking / 2) * s + "px",
     top: box.top * s + "px",
@@ -418,6 +475,18 @@ $("image").addEventListener("change", async (e) => {
     alert("That file could not be read as an image.");
   }
 });
+
+// Switching template keeps the text, and shows only the controls that template uses.
+function applyTemplate() {
+  closeEditor();
+  template = TEMPLATES[$("template").value];
+  document.querySelector("[data-photo-controls]").hidden = !template.usesPhoto;
+  document.querySelectorAll("[data-field-row]").forEach((row) => {
+    row.hidden = !template.fields.includes(row.dataset.fieldRow);
+  });
+  render();
+}
+$("template").addEventListener("change", applyTemplate);
 
 // Never let the form submit: it would reload the page and lose everything.
 $("form").addEventListener("submit", (e) => e.preventDefault());
@@ -479,13 +548,16 @@ function download() {
 
 (async function init() {
   logo.src = "assets/logo.svg";
+  leaves.src = "assets/leaves.svg";
   await Promise.all([
+    leaves.decode().catch(() => {}),
     document.fonts.load('80px "Wilden"'),
     document.fonts.load('40px "PT Serif"'),
     logo.decode().catch(() => {}),
     loadImage("assets/sample.jpg").then((img) => { photo = img; }).catch(() => {}),
   ]);
-  render();
+  // Browsers can restore the dropdown's last choice on reload.
+  applyTemplate();
 })();
 </script>
 </body>
