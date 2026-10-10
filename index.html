@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Social Post Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Serif&display=swap" rel="stylesheet">
+<style>
+  @font-face {
+    font-family: "Wilden";
+    src: url("fonts/wilden-regular.woff") format("woff");
+    font-display: block;
+  }
+  :root {
+    --bg: #f5f3ef;
+    --panel: #ffffff;
+    --text: #1d1b19;
+    --muted: #6b655e;
+    --border: #ddd7cf;
+    --accent: #f0531c;
+    --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161412; --panel: #211e1b; --text: #f2ede6; --muted: #a39b91; --border: #3a352f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161412; --panel: #211e1b; --text: #f2ede6; --muted: #a39b91; --border: #3a352f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: minmax(280px, 380px) 1fr;
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 16px;
+  }
+  @media (max-width: 760px) { .app { grid-template-columns: 1fr; } }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .intro { color: var(--muted); margin: 0 0 24px; }
+  form {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    display: grid;
+    gap: 18px;
+    align-self: start;
+  }
+  label { display: grid; gap: 6px; font-weight: 600; font-size: 14px; }
+  .hint { font-weight: 400; color: var(--muted); font-size: 13px; }
+  input[type="text"], textarea {
+    font: inherit;
+    font-weight: 400;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    width: 100%;
+  }
+  textarea { resize: vertical; min-height: 72px; }
+  input[type="file"] { font: inherit; font-weight: 400; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 0; display: grid; gap: 10px; }
+  legend { font-weight: 600; font-size: 14px; padding: 0 4px; }
+  fieldset label { font-weight: 400; font-size: 13px; }
+  button {
+    font: inherit;
+    font-weight: 600;
+    padding: 12px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.05); }
+  .preview { position: sticky; top: 32px; align-self: start; }
+  canvas {
+    display: block;
+    width: 100%;
+    max-width: 640px;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.18);
+  }
+  .size { color: var(--muted); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main class="app">
+  <section>
+    <h1>Social post builder</h1>
+    <p class="intro">Fill in the fields, then download a 1080 × 1350 JPEG.</p>
+    <form id="form" autocomplete="off">
+      <label>Image
+        <input type="file" id="image" accept="image/*">
+        <span class="hint">Fills the frame. Use the controls below to reframe it.</span>
+      </label>
+      <fieldset>
+        <legend>Image framing</legend>
+        <label>Zoom <input type="range" id="zoom" min="1" max="3" step="0.01" value="1"></label>
+        <label>Horizontal position <input type="range" id="posX" min="0" max="100" step="1" value="50"></label>
+        <label>Vertical position <input type="range" id="posY" min="0" max="100" step="1" value="50"></label>
+      </fieldset>
+      <label>Heading
+        <textarea id="heading" rows="2">Large heading goes here</textarea>
+      </label>
+      <label>Summary
+        <textarea id="summary" rows="2">Description text goes here</textarea>
+      </label>
+      <label>Call to action
+        <input type="text" id="cta" value="Sunday 6th dec">
+      </label>
+      <button type="button" id="download">Download JPEG</button>
+    </form>
+  </section>
+  <section class="preview">
+    <canvas id="canvas" width="1080" height="1350" aria-label="Preview of the social post"></canvas>
+    <p class="size">Output: 1080 × 1350 px JPEG</p>
+  </section>
+</main>
+
+<script>
+// Values taken from the Figma frame "Full bleed date" (1080 × 1350).
+const W = 1080, H = 1350, PAD = 100;
+const CONTENT_W = 913.846;
+const LOGO = { w: 112.758, h: 112.758, slotH: 110.769 };
+const GAP = 40;
+const SHADOW = { y: 11.077, blur: 55.385, colour: "rgba(0,0,0,0.2)" };
+const STYLES = {
+  heading: { font: '80px "Wilden"', size: 80, lineHeight: 80, tracking: 12, colour: "#ffa74f", width: CONTENT_W, shadow: true },
+  summary: { font: '40px "PT Serif"', size: 40, lineHeight: 60, tracking: 0, colour: "#f7dfba", width: CONTENT_W, shadow: true },
+  cta:     { font: '40px "Wilden"', size: 40, lineHeight: 40, tracking: 6, colour: "#f0531c", width: 780, shadow: false },
+};
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const $ = (id) => document.getElementById(id);
+
+let photo = null;
+const logo = new Image();
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function setFont(style) {
+  ctx.font = style.font;
+  ctx.letterSpacing = style.tracking + "px";
+}
+
+// Greedy word wrap that respects manual line breaks.
+function wrap(text, maxWidth) {
+  const lines = [];
+  for (const para of text.split("\n")) {
+    const words = para.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) { lines.push(""); continue; }
+    let line = words[0];
+    for (const word of words.slice(1)) {
+      const test = line + " " + word;
+      if (ctx.measureText(test).width <= maxWidth) line = test;
+      else { lines.push(line); line = word; }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+function drawCover(img) {
+  const zoom = +$("zoom").value;
+  const scale = Math.max(W / img.width, H / img.height) * zoom;
+  const dw = img.width * scale, dh = img.height * scale;
+  const dx = (W - dw) * ($("posX").value / 100);
+  const dy = (H - dh) * ($("posY").value / 100);
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+// Lays out a text block and returns its height plus a draw function.
+// trimmed = CSS text-box-trim (cap height to baseline), as on the Figma heading.
+function block(text, style, trimmed = false) {
+  setFont(style);
+  const lines = wrap(text, style.width);
+  const m = ctx.measureText("H");
+  const asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+  const cap = m.actualBoundingBoxAscent;
+  const baselineInLine = (style.lineHeight - (asc + desc)) / 2 + asc;
+  const height = trimmed
+    ? (lines.length - 1) * style.lineHeight + cap
+    : lines.length * style.lineHeight;
+
+  const draw = (top) => {
+    setFont(style);
+    ctx.fillStyle = style.colour;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    if (style.shadow) {
+      ctx.shadowColor = SHADOW.colour;
+      ctx.shadowOffsetY = SHADOW.y;
+      ctx.shadowBlur = SHADOW.blur;
+    }
+    lines.forEach((line, i) => {
+      const baseline = trimmed
+        ? top + cap + i * style.lineHeight
+        : top + i * style.lineHeight + baselineInLine;
+      // Canvas adds tracking after the last glyph as CSS does, so nudge to keep it optically centred.
+      ctx.fillText(line, W / 2 + style.tracking / 2, baseline);
+    });
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+  };
+  return { height, draw, empty: !text.trim() };
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  if (photo) drawCover(photo);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "rgba(0,0,0,0.3)");
+  grad.addColorStop(0.3, "rgba(0,0,0,0)");
+  grad.addColorStop(1, "rgba(0,0,0,0.9)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  if (logo.complete && logo.naturalWidth) {
+    const top = PAD - (LOGO.h - LOGO.slotH) / 2;
+    ctx.drawImage(logo, (W - LOGO.w) / 2, top, LOGO.w, LOGO.h);
+  }
+
+  // Text stack is anchored to the bottom padding, stacking upwards.
+  const blocks = [
+    block($("heading").value, STYLES.heading, true),
+    block($("summary").value, STYLES.summary),
+    block($("cta").value, STYLES.cta),
+  ].filter((b) => !b.empty);
+
+  const total = blocks.reduce((sum, b) => sum + b.height, 0) + GAP * (blocks.length - 1);
+  let y = H - PAD - total;
+  for (const b of blocks) {
+    b.draw(y);
+    y += b.height + GAP;
+  }
+}
+
+function slug(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "social-post";
+}
+
+$("image").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  try {
+    photo = await loadImage(url);
+    $("zoom").value = 1; $("posX").value = 50; $("posY").value = 50;
+    render();
+  } catch {
+    alert("That file could not be read as an image.");
+  }
+});
+
+$("form").addEventListener("input", (e) => { if (e.target.type !== "file") render(); });
+
+$("download").addEventListener("click", () => {
+  canvas.toBlob((blob) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = slug($("heading").value) + ".jpg";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, "image/jpeg", 0.92);
+});
+
+(async function init() {
+  logo.src = "assets/logo.svg";
+  await Promise.all([
+    document.fonts.load('80px "Wilden"'),
+    document.fonts.load('40px "PT Serif"'),
+    logo.decode().catch(() => {}),
+    loadImage("assets/sample.jpg").then((img) => { photo = img; }).catch(() => {}),
+  ]);
+  render();
+})();
+</script>
+</body>
+</html>
