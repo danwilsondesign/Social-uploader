@@ -171,6 +171,7 @@
       <label>Template
         <select id="template">
           <option value="photo">Full bleed photo</option>
+          <option value="split">Split photo</option>
           <option value="message">Message</option>
         </select>
       </label>
@@ -222,6 +223,7 @@ const $ = (id) => document.getElementById(id);
 let photo = null;
 const logo = new Image();
 const leaves = new Image();
+const splitMask = new Image();
 
 // Each template sets its fields, text styles, background and where its text blocks sit.
 // place() gets the laid-out blocks (keyed by field) and returns each block's top edge.
@@ -251,16 +253,33 @@ const TEMPLATES = {
         ctx.drawImage(logo, (W - 112.758) / 2, 100 - (112.758 - 110.769) / 2, 112.758, 112.758);
       }
     },
-    // Text stack is anchored to the bottom padding (100), stacking upwards with 40 gaps.
-    place(blocks) {
-      const list = Object.values(blocks);
-      const GAP = 40;
-      const total = list.reduce((sum, b) => sum + b.height, 0) + GAP * (list.length - 1);
-      let y = H - 100 - total;
-      const tops = {};
-      for (const b of list) { tops[b.name] = y; y += b.height + GAP; }
-      return tops;
+    place: (blocks) => stackFromBottom(blocks, 40),
+  },
+
+  // Figma frame "split"
+  split: {
+    fields: ["heading", "summary", "cta"],
+    usesPhoto: true,
+    styles: {
+      heading: { family: '"Wilden"', size: 70, lineHeight: 70, tracking: 10.5, colour: "#ffa74f", width: 880, shadow: false },
+      summary: { family: '"PT Serif"', size: 40, lineHeight: 60, tracking: 0, colour: "#f7dfba", width: 803.077, shadow: true },
+      cta:     { family: '"Wilden"', size: 40, lineHeight: 40, tracking: 4, colour: "#f0531c", width: 880, shadow: true, trimmed: true },
     },
+    // Photo is clipped to the wavy "Union" shape; the mask is that shape's alpha, exported from Figma.
+    drawBackground() {
+      ctx.fillStyle = "#2e4b3c";
+      ctx.fillRect(0, 0, W, H);
+      if (!photo || !splitMask.complete || !splitMask.naturalWidth) return;
+      const box = { x: -13.854, y: -0.008, w: 1107.708, h: 866.631 };
+      const off = document.createElement("canvas");
+      off.width = W; off.height = H;
+      const o = off.getContext("2d");
+      drawCover(photo, o, box);
+      o.globalCompositeOperation = "destination-in";
+      o.drawImage(splitMask, box.x, box.y, box.w, box.h);
+      ctx.drawImage(off, 0, 0);
+    },
+    place: (blocks) => stackFromBottom(blocks, 27.692),
   },
 
   // Figma frame "Message"
@@ -288,6 +307,16 @@ const TEMPLATES = {
     },
   },
 };
+
+// Stacks text blocks upwards from the bottom padding (100), with a fixed gap between them.
+function stackFromBottom(blocks, gap) {
+  const list = Object.values(blocks);
+  const total = list.reduce((sum, b) => sum + b.height, 0) + gap * (list.length - 1);
+  let y = H - 100 - total;
+  const tops = {};
+  for (const b of list) { tops[b.name] = y; y += b.height + gap; }
+  return tops;
+}
 
 let template = TEMPLATES.photo;
 const styleOf = (field) => template.styles[field];
@@ -327,13 +356,19 @@ function wrap(text, maxWidth) {
   return lines;
 }
 
-function drawCover(img) {
+// Draws the photo to cover a box (the whole frame by default), using the zoom and position controls.
+function drawCover(img, target = ctx, box = { x: 0, y: 0, w: W, h: H }) {
   const zoom = +$("zoom").value;
-  const scale = Math.max(W / img.width, H / img.height) * zoom;
+  const scale = Math.max(box.w / img.width, box.h / img.height) * zoom;
   const dw = img.width * scale, dh = img.height * scale;
-  const dx = (W - dw) * ($("posX").value / 100);
-  const dy = (H - dh) * ($("posY").value / 100);
-  ctx.drawImage(img, dx, dy, dw, dh);
+  const dx = box.x + (box.w - dw) * ($("posX").value / 100);
+  const dy = box.y + (box.h - dh) * ($("posY").value / 100);
+  target.save();
+  target.beginPath();
+  target.rect(box.x, box.y, box.w, box.h);
+  target.clip();
+  target.drawImage(img, dx, dy, dw, dh);
+  target.restore();
 }
 
 // Lays out a text block and returns its height plus a draw function.
@@ -549,8 +584,10 @@ function download() {
 (async function init() {
   logo.src = "assets/logo.svg";
   leaves.src = "assets/leaves.svg";
+  splitMask.src = "assets/split-mask.png";
   await Promise.all([
     leaves.decode().catch(() => {}),
+    splitMask.decode().catch(() => {}),
     document.fonts.load('80px "Wilden"'),
     document.fonts.load('40px "PT Serif"'),
     logo.decode().catch(() => {}),

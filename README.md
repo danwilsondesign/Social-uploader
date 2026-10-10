@@ -14,6 +14,13 @@ Pick one from the Template dropdown. Each one is defined in the `TEMPLATES` obje
 5. Summary (PT Serif 40px, #f7dfba)
 6. Call to action (Wilden 40px, #f0531c)
 
+**Split photo** (Figma frame "split")
+1. Green background (#2e4b3c, fixed)
+2. Photo (uploaded, clipped to the wavy shape from Figma, with zoom and position controls). The shape is `assets/split-mask.png`, the alpha channel of Figma's "Union" layer.
+3. Heading (Wilden 70px, #ffa74f)
+4. Summary (PT Serif 40px, #f7dfba)
+5. Call to action (Wilden 40px, #f0531c)
+
 **Message** (Figma frame "Message")
 1. Green background (#2e4b3c, fixed)
 2. Heading (Wilden 80px, #fbeed9, centred in the frame)
