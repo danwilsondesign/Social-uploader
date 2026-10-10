@@ -109,6 +109,12 @@
     cursor: text;
   }
   .hit:hover, .hit:focus-visible { border-color: rgba(255,255,255,.75); outline: none; }
+  .hit.empty {
+    border-color: rgba(255,255,255,.5);
+    background: rgba(0,0,0,.25);
+    color: rgba(255,255,255,.85);
+    font: 600 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
   .editor {
     position: absolute;
     margin: 0;
@@ -273,7 +279,8 @@ function block(text, style) {
   return { height, draw, boxOffset, boxHeight, empty: !text.trim() };
 }
 
-function render() {
+// forExport leaves empty fields out entirely; the preview keeps a placeholder for them.
+function render(forExport = false) {
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
@@ -293,16 +300,16 @@ function render() {
   }
 
   // Text stack is anchored to the bottom padding, stacking upwards.
-  // An empty field keeps one line of space while it is being edited, so there is somewhere to type.
+  // In the preview an empty field keeps one line of space, so there is always something to click.
   const blocks = FIELDS
     .map((name) => ({ name, ...block($(name).value, STYLES[name]) }))
-    .filter((b) => !b.empty || b.name === editing);
+    .filter((b) => !forExport || !b.empty);
 
   const total = blocks.reduce((sum, b) => sum + b.height, 0) + GAP * (blocks.length - 1);
   let y = H - PAD - total;
   layout = {};
   for (const b of blocks) {
-    layout[b.name] = { top: y + b.boxOffset, height: b.boxHeight };
+    layout[b.name] = { top: y + b.boxOffset, height: b.boxHeight, empty: b.empty };
     // The field being edited is shown by the editor instead.
     if (b.name !== editing) b.draw(y);
     y += b.height + GAP;
@@ -319,6 +326,8 @@ function positionOverlays() {
     const box = layout[hit.dataset.field];
     hit.hidden = !box || hit.dataset.field === editing;
     if (hit.hidden) return;
+    hit.classList.toggle("empty", box.empty);
+    hit.textContent = box.empty ? "Add " + hit.getAttribute("aria-label").replace(/^Edit /, "") : "";
     const w = STYLES[hit.dataset.field].width + HIT_PAD * 2;
     Object.assign(hit.style, {
       left: (W - w) / 2 * s + "px",
@@ -405,6 +414,8 @@ new ResizeObserver(positionOverlays).observe(canvas);
 
 $("download").addEventListener("click", () => {
   closeEditor();
+  // toBlob copies the canvas straight away, so the preview can be restored right after.
+  render(true);
   canvas.toBlob((blob) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -412,6 +423,7 @@ $("download").addEventListener("click", () => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }, "image/jpeg", 0.92);
+  render();
 });
 
 (async function init() {
