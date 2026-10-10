@@ -266,17 +266,28 @@ const TEMPLATES = {
       cta:     { family: '"Wilden"', size: 40, lineHeight: 40, tracking: 4, colour: "#f0531c", width: 880, shadow: true, trimmed: true },
     },
     // Photo is clipped to the wavy "Union" shape; the mask is that shape's alpha, exported from Figma.
-    drawBackground() {
+    // As in Figma's auto layout, the photo fills the space above the text, less a 100 gap,
+    // so more text means a shorter photo. The wave keeps its size and sits on the photo's bottom edge.
+    drawBackground(textTop) {
       ctx.fillStyle = "#2e4b3c";
       ctx.fillRect(0, 0, W, H);
       if (!photo || !splitMask.complete || !splitMask.naturalWidth) return;
-      const box = { x: -13.854, y: -0.008, w: 1107.708, h: 866.631 };
+      const MASK_H = 866.631, SOLID_H = 742; // mask is solid down to 742, then the wave
+      const box = { x: -13.854, y: 0, w: 1107.708, h: Math.max(textTop - 100, 0) };
+      const maskTop = box.y + box.h - MASK_H;
+
+      const shape = document.createElement("canvas");
+      shape.width = W; shape.height = H;
+      const s = shape.getContext("2d");
+      s.fillRect(box.x, box.y, box.w, Math.max(maskTop + SOLID_H - box.y, 0));
+      s.drawImage(splitMask, box.x, maskTop, box.w, MASK_H);
+
       const off = document.createElement("canvas");
       off.width = W; off.height = H;
       const o = off.getContext("2d");
       drawCover(photo, o, box);
       o.globalCompositeOperation = "destination-in";
-      o.drawImage(splitMask, box.x, box.y, box.w, box.h);
+      o.drawImage(shape, 0, 0);
       ctx.drawImage(off, 0, 0);
     },
     place: (blocks) => stackFromBottom(blocks, 27.692),
@@ -414,17 +425,19 @@ function block(text, style) {
 
 // forExport leaves empty fields out entirely; the preview keeps a placeholder for them.
 function render(forExport = false) {
-  ctx.clearRect(0, 0, W, H);
-  template.drawBackground();
-
   // In the preview an empty field keeps one line of space, so there is always something to click.
   const blocks = {};
   for (const name of template.fields) {
     const b = { name, ...block($(name).value, styleOf(name)) };
     if (!forExport || !b.empty) blocks[name] = b;
   }
-
   const tops = template.place(blocks);
+
+  // Backgrounds can respond to where the text starts (the bottom padding if there is no text).
+  const textTop = Math.min(H - 100, ...Object.values(tops));
+  ctx.clearRect(0, 0, W, H);
+  template.drawBackground(textTop);
+
   layout = {};
   for (const b of Object.values(blocks)) {
     const y = tops[b.name];
