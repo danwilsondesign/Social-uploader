@@ -45,7 +45,10 @@
     margin: 0 auto;
     padding: 32px 16px;
   }
-  @media (max-width: 760px) { .app { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; }
+    .preview { order: -1; position: static; }
+  }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .intro { color: var(--muted); margin: 0 0 24px; }
   form {
@@ -96,13 +99,39 @@
     box-shadow: 0 8px 32px rgba(0,0,0,.18);
   }
   .size { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .stage { position: relative; width: 100%; max-width: 640px; }
+  .hit {
+    position: absolute;
+    padding: 0;
+    background: none;
+    border: 2px dashed transparent;
+    border-radius: 6px;
+    cursor: text;
+  }
+  .hit:hover, .hit:focus-visible { border-color: rgba(255,255,255,.75); outline: none; }
+  .editor {
+    position: absolute;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    outline: 2px dashed rgba(255,255,255,.85);
+    outline-offset: 6px;
+    background: transparent;
+    resize: none;
+    overflow: hidden;
+    text-align: center;
+    white-space: pre-wrap;
+    min-height: 0;
+  }
+  .editor[hidden] { display: none; }
 </style>
 </head>
 <body>
 <main class="app">
   <section>
     <h1>Social post builder</h1>
-    <p class="intro">Fill in the fields, then download a 1080 × 1350 JPEG.</p>
+    <p class="intro">Click the text on the preview to edit it, or use the fields below. Then download a 1080 × 1350 JPEG.</p>
     <form id="form" autocomplete="off">
       <label>Image
         <input type="file" id="image" accept="image/*">
@@ -127,7 +156,13 @@
     </form>
   </section>
   <section class="preview">
-    <canvas id="canvas" width="1080" height="1350" aria-label="Preview of the social post"></canvas>
+    <div class="stage" id="stage">
+      <canvas id="canvas" width="1080" height="1350" aria-label="Preview of the social post"></canvas>
+      <button type="button" class="hit" data-field="heading" aria-label="Edit heading"></button>
+      <button type="button" class="hit" data-field="summary" aria-label="Edit summary"></button>
+      <button type="button" class="hit" data-field="cta" aria-label="Edit call to action"></button>
+      <textarea class="editor" id="editor" hidden spellcheck="true"></textarea>
+    </div>
     <p class="size">Output: 1080 × 1350 px JPEG</p>
   </section>
 </main>
@@ -140,10 +175,15 @@ const LOGO = { w: 112.758, h: 112.758, slotH: 110.769 };
 const GAP = 40;
 const SHADOW = { y: 11.077, blur: 55.385, colour: "rgba(0,0,0,0.2)" };
 const STYLES = {
-  heading: { font: '80px "Wilden"', size: 80, lineHeight: 80, tracking: 12, colour: "#ffa74f", width: CONTENT_W, shadow: true },
-  summary: { font: '40px "PT Serif"', size: 40, lineHeight: 60, tracking: 0, colour: "#f7dfba", width: CONTENT_W, shadow: true },
-  cta:     { font: '40px "Wilden"', size: 40, lineHeight: 40, tracking: 6, colour: "#f0531c", width: 780, shadow: false },
+  heading: { family: '"Wilden"', size: 80, lineHeight: 80, tracking: 12, colour: "#ffa74f", width: CONTENT_W, shadow: true, trimmed: true },
+  summary: { family: '"PT Serif"', size: 40, lineHeight: 60, tracking: 0, colour: "#f7dfba", width: CONTENT_W, shadow: true },
+  cta:     { family: '"Wilden"', size: 40, lineHeight: 40, tracking: 6, colour: "#f0531c", width: 780, shadow: false },
 };
+const FIELDS = ["heading", "summary", "cta"];
+
+// Field currently being edited on the preview, and where each text block was last drawn.
+let editing = null;
+let layout = {};
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -162,7 +202,7 @@ function loadImage(src) {
 }
 
 function setFont(style) {
-  ctx.font = style.font;
+  ctx.font = `${style.size}px ${style.family}`;
   ctx.letterSpacing = style.tracking + "px";
 }
 
@@ -193,8 +233,9 @@ function drawCover(img) {
 }
 
 // Lays out a text block and returns its height plus a draw function.
-// trimmed = CSS text-box-trim (cap height to baseline), as on the Figma heading.
-function block(text, style, trimmed = false) {
+// style.trimmed = CSS text-box-trim (cap height to baseline), as on the Figma heading.
+function block(text, style) {
+  const trimmed = !!style.trimmed;
   setFont(style);
   const lines = wrap(text, style.width);
   const m = ctx.measureText("H");
@@ -226,7 +267,10 @@ function block(text, style, trimmed = false) {
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
   };
-  return { height, draw, empty: !text.trim() };
+  // Untrimmed line boxes, used to line the on-image editor up with the drawn text.
+  const boxOffset = trimmed ? cap - baselineInLine : 0;
+  const boxHeight = lines.length * style.lineHeight;
+  return { height, draw, boxOffset, boxHeight, empty: !text.trim() };
 }
 
 function render() {
@@ -249,18 +293,76 @@ function render() {
   }
 
   // Text stack is anchored to the bottom padding, stacking upwards.
-  const blocks = [
-    block($("heading").value, STYLES.heading, true),
-    block($("summary").value, STYLES.summary),
-    block($("cta").value, STYLES.cta),
-  ].filter((b) => !b.empty);
+  // An empty field keeps one line of space while it is being edited, so there is somewhere to type.
+  const blocks = FIELDS
+    .map((name) => ({ name, ...block($(name).value, STYLES[name]) }))
+    .filter((b) => !b.empty || b.name === editing);
 
   const total = blocks.reduce((sum, b) => sum + b.height, 0) + GAP * (blocks.length - 1);
   let y = H - PAD - total;
+  layout = {};
   for (const b of blocks) {
-    b.draw(y);
+    layout[b.name] = { top: y + b.boxOffset, height: b.boxHeight };
+    // The field being edited is shown by the editor instead.
+    if (b.name !== editing) b.draw(y);
     y += b.height + GAP;
   }
+  positionOverlays();
+}
+
+// Places the click targets and the editor over the canvas, scaled to its displayed size.
+function positionOverlays() {
+  const s = canvas.clientWidth / W;
+  if (!s) return;
+  const HIT_PAD = 16;
+  document.querySelectorAll(".hit").forEach((hit) => {
+    const box = layout[hit.dataset.field];
+    hit.hidden = !box || hit.dataset.field === editing;
+    if (hit.hidden) return;
+    const w = STYLES[hit.dataset.field].width + HIT_PAD * 2;
+    Object.assign(hit.style, {
+      left: (W - w) / 2 * s + "px",
+      top: (box.top - HIT_PAD) * s + "px",
+      width: w * s + "px",
+      height: (box.height + HIT_PAD * 2) * s + "px",
+    });
+  });
+
+  const editor = $("editor");
+  const box = editing && layout[editing];
+  if (!box) return;
+  const st = STYLES[editing];
+  Object.assign(editor.style, {
+    left: ((W - st.width) / 2 + st.tracking / 2) * s + "px",
+    top: box.top * s + "px",
+    width: st.width * s + "px",
+    height: box.height * s + "px",
+    fontFamily: st.family,
+    fontSize: st.size * s + "px",
+    lineHeight: st.lineHeight * s + "px",
+    letterSpacing: st.tracking * s + "px",
+    color: st.colour,
+    caretColor: st.colour,
+    textShadow: st.shadow ? `0 ${SHADOW.y * s}px ${SHADOW.blur * s}px ${SHADOW.colour}` : "none",
+  });
+}
+
+function openEditor(name) {
+  const editor = $("editor");
+  editing = name;
+  editor.value = $(name).value;
+  editor.setAttribute("aria-label", $(name).closest("label").firstChild.textContent.trim());
+  editor.hidden = false;
+  render();
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+}
+
+function closeEditor() {
+  if (!editing) return;
+  editing = null;
+  $("editor").hidden = true;
+  render();
 }
 
 function slug(text) {
@@ -285,7 +387,24 @@ $("form").addEventListener("submit", (e) => e.preventDefault());
 
 $("form").addEventListener("input",(e) => { if (e.target.type !== "file") render(); });
 
+document.querySelectorAll(".hit").forEach((hit) => {
+  hit.addEventListener("click", () => openEditor(hit.dataset.field));
+});
+
+// The editor writes into the matching form field, which stays the single source of the text.
+$("editor").addEventListener("input", (e) => {
+  $(editing).value = e.target.value;
+  render();
+});
+$("editor").addEventListener("blur", closeEditor);
+$("editor").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") e.target.blur();
+});
+
+new ResizeObserver(positionOverlays).observe(canvas);
+
 $("download").addEventListener("click", () => {
+  closeEditor();
   canvas.toBlob((blob) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
