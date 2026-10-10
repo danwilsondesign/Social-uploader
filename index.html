@@ -45,7 +45,7 @@
     margin: 0 auto;
     padding: 32px 16px;
   }
-  .tabs, .mobile-download { display: none; }
+  .tabs, .mobile-download, .thumb { display: none; }
   @media (max-width: 760px) {
     .app { grid-template-columns: 1fr; padding-top: 0; gap: 0; }
     .preview { position: static; }
@@ -71,6 +71,7 @@
     .app[data-tab="preview"] #details-panel,
     .app[data-tab="details"] #preview-panel { display: none; }
     .mobile-download { display: block; width: 100%; margin-top: 16px; }
+    .thumb { display: block; width: 144px; height: auto; margin: 0 auto 4px; border-radius: 6px; }
   }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .intro { color: var(--muted); margin: 0 0 24px; }
@@ -182,6 +183,7 @@
         </label>
         <fieldset>
           <legend>Image framing</legend>
+          <canvas id="thumb" class="thumb" width="432" height="540" aria-hidden="true"></canvas>
           <label>Zoom <input type="range" id="zoom" min="1" max="3" step="0.01" value="1"></label>
           <label>Horizontal position <input type="range" id="posX" min="0" max="100" step="1" value="50"></label>
           <label>Vertical position <input type="range" id="posY" min="0" max="100" step="1" value="50"></label>
@@ -448,6 +450,10 @@ function render(forExport = false) {
 
   template.drawForeground?.();
   positionOverlays();
+
+  // Small copy for the framing controls on the mobile Details tab.
+  const thumb = $("thumb");
+  thumb.getContext("2d").drawImage(canvas, 0, 0, thumb.width, thumb.height);
 }
 
 // Places the click targets and the editor over the canvas, scaled to its displayed size.
