@@ -121,7 +121,7 @@
         <textarea id="summary" rows="2">Description text goes here</textarea>
       </label>
       <label>Call to action
-        <input type="text" id="cta" value="Sunday 6th dec">
+        <textarea id="cta" rows="1">Sunday 6th dec</textarea>
       </label>
       <button type="button" id="download">Download JPEG</button>
     </form>
@@ -280,7 +280,10 @@ $("image").addEventListener("change", async (e) => {
   }
 });
 
-$("form").addEventListener("input", (e) => { if (e.target.type !== "file") render(); });
+// Never let the form submit: it would reload the page and lose everything.
+$("form").addEventListener("submit", (e) => e.preventDefault());
+
+$("form").addEventListener("input",(e) => { if (e.target.type !== "file") render(); });
 
 $("download").addEventListener("click", () => {
   canvas.toBlob((blob) => {
