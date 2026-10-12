@@ -241,11 +241,11 @@
 const W = 1080;
 const SHADOW = { y: 11.077, blur: 55.385, colour: "rgba(0,0,0,0.2)" };
 
-// Post is the size the Figma frames were designed at. Story adds height, and its inset
-// keeps the logo and text clear of the app's own controls at the top and bottom.
+// Post is the size the Figma frames were designed at. Story adds height. An inset moves the
+// logo and text further in from the top and bottom edges; both currently use the same padding.
 const FORMATS = {
   post:  { h: 1350, inset: 0 },
-  story: { h: 1920, inset: 150 },
+  story: { h: 1920, inset: 0 },
 };
 let H = FORMATS.post.h, INSET = FORMATS.post.inset;
 

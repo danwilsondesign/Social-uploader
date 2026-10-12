@@ -8,7 +8,7 @@ The photo templates also accept a video. It plays muted on a loop in the preview
 
 ## Formats
 
-The Format toggle switches between **Post** (1080 × 1350, the size the Figma frames were designed at) and **Story** (1080 × 1920). In Story, the logo and text sit a further 150px in from the top and bottom, clear of Instagram's story controls. Photos fill the extra height, and the Message template's leaves are spaced out to fill the taller frame without being resized. Both sizes are set in `FORMATS` in `index.html`.
+The Format toggle switches between **Post** (1080 × 1350, the size the Figma frames were designed at) and **Story** (1080 × 1920). Both use the same 100px padding at the top and bottom. Photos fill the extra height, and the Message template's leaves are spaced out to fill the taller frame without being resized. Both sizes are set in `FORMATS` in `index.html`.
 
 ## Templates
 
