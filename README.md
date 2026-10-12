@@ -2,6 +2,10 @@
 
 A static page that builds a 1080 × 1350 social post from the Figma frame "Full bleed date" and downloads it as a JPEG. Everything runs in the browser, so no images are uploaded anywhere.
 
+## Video
+
+The photo templates also accept a video. It plays muted on a loop in the preview, and **Download video** plays it once from the start while recording the post, with the video's sound. Export takes as long as the video (capped at 60 seconds), and the tab must stay open and visible while it runs. Browsers that can record MP4 (current Chrome, Edge and Safari) save `.mp4`; others save `.webm`, which Instagram won't accept.
+
 ## Formats
 
 The Format toggle switches between **Post** (1080 × 1350, the size the Figma frames were designed at) and **Story** (1080 × 1920). In Story, the logo and text sit a further 150px in from the top and bottom, clear of Instagram's story controls. Photos fill the extra height, and the Message template's leaves are spaced out to fill the taller frame without being resized. Both sizes are set in `FORMATS` in `index.html`.

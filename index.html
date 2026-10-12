@@ -198,9 +198,9 @@
         <label><input type="radio" name="format" value="story"> Story <span>1080 × 1920</span></label>
       </fieldset>
       <div class="group" data-photo-controls>
-        <label>Image
-          <input type="file" id="image" accept="image/*">
-          <span class="hint">Fills the frame. Use the controls below to reframe it.</span>
+        <label>Image or video
+          <input type="file" id="image" accept="image/*,video/*">
+          <span class="hint">Fills the frame. Use the controls below to reframe it. Videos download as video, up to 60 seconds.</span>
         </label>
         <fieldset>
           <legend>Image framing</legend>
@@ -307,19 +307,16 @@ const TEMPLATES = {
       const box = { x: -13.854, y: 0, w: 1107.708, h: Math.max(textTop - 100, 0) };
       const maskTop = box.y + box.h - MASK_H;
 
-      const shape = document.createElement("canvas");
-      shape.width = W; shape.height = H;
-      const s = shape.getContext("2d");
+      const s = scratch("shape");
       s.fillRect(box.x, box.y, box.w, Math.max(maskTop + SOLID_H - box.y, 0));
       s.drawImage(splitMask, box.x, maskTop, box.w, MASK_H);
 
-      const off = document.createElement("canvas");
-      off.width = W; off.height = H;
-      const o = off.getContext("2d");
+      const o = scratch("photo");
       drawCover(photo, o, box);
       o.globalCompositeOperation = "destination-in";
-      o.drawImage(shape, 0, 0);
-      ctx.drawImage(off, 0, 0);
+      o.drawImage(s.canvas, 0, 0);
+      o.globalCompositeOperation = "source-over";
+      ctx.drawImage(o.canvas, 0, 0);
     },
     place: (blocks) => stackFromBottom(blocks, 27.692),
   },
@@ -357,6 +354,16 @@ const TEMPLATES = {
     },
   },
 };
+
+// Cleared, frame-sized working canvases, kept between draws because video redraws every frame.
+const scratchCanvases = {};
+function scratch(name) {
+  const c = scratchCanvases[name] ??= document.createElement("canvas");
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, W, H);
+  return g;
+}
 
 // Stacks text blocks upwards from the bottom padding (100, plus the format's inset), with a fixed gap.
 function stackFromBottom(blocks, gap) {
@@ -408,9 +415,11 @@ function wrap(text, maxWidth) {
 
 // Draws the photo to cover a box (the whole frame by default), using the zoom and position controls.
 function drawCover(img, target = ctx, box = { x: 0, y: 0, w: W, h: H }) {
+  const iw = img.videoWidth || img.naturalWidth, ih = img.videoHeight || img.naturalHeight;
+  if (!iw || !ih) return;
   const zoom = +$("zoom").value;
-  const scale = Math.max(box.w / img.width, box.h / img.height) * zoom;
-  const dw = img.width * scale, dh = img.height * scale;
+  const scale = Math.max(box.w / iw, box.h / ih) * zoom;
+  const dw = iw * scale, dh = ih * scale;
   const dx = box.x + (box.w - dw) * ($("posX").value / 100);
   const dy = box.y + (box.h - dh) * ($("posY").value / 100);
   target.save();
@@ -554,17 +563,52 @@ function slug(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "social-post";
 }
 
+// `photo` is the uploaded media: an image, or a video element that plays in the template.
+const isVideo = () => photo instanceof HTMLVideoElement;
+const MAX_VIDEO_SECONDS = 60;
+let exporting = false;
+
+function loadVideo(src) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    // Muted and inline so browsers, including iOS Safari, allow it to play on its own.
+    Object.assign(video, { src, muted: true, loop: true, playsInline: true, preload: "auto" });
+    video.onloadeddata = () => resolve(video);
+    video.onerror = reject;
+  });
+}
+
+// While a video is loaded, redraw every frame so the preview plays.
+let playing = false;
+function playLoop() {
+  if (!isVideo() || exporting) { playing = false; return; }
+  playing = true;
+  render();
+  requestAnimationFrame(playLoop);
+}
+
 $("image").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const url = URL.createObjectURL(file);
+  const wasVideo = isVideo() ? photo : null;
   try {
-    photo = await loadImage(url);
-    $("zoom").value = 1; $("posX").value = 50; $("posY").value = 50;
-    render();
+    photo = file.type.startsWith("video/") ? await loadVideo(url) : await loadImage(url);
   } catch {
-    alert("That file could not be read as an image.");
+    alert("That file could not be read as an image or video.");
+    return;
   }
+  if (wasVideo) { wasVideo.pause(); URL.revokeObjectURL(wasVideo.src); }
+  $("zoom").value = 1; $("posX").value = 50; $("posY").value = 50;
+  if (isVideo()) {
+    photo.play().catch(() => {});
+    if (!playing) playLoop();
+    if (photo.duration > MAX_VIDEO_SECONDS) {
+      alert(`This video is ${Math.round(photo.duration)} seconds long. Instagram splits stories into ${MAX_VIDEO_SECONDS}-second parts, so only the first ${MAX_VIDEO_SECONDS} seconds will be exported.`);
+    }
+  }
+  updateDownloadLabels();
+  render();
 });
 
 // Switching template keeps the text, and shows only the controls that template uses.
@@ -575,6 +619,7 @@ function applyTemplate() {
   document.querySelectorAll("[data-field-row]").forEach((row) => {
     row.hidden = !template.fields.includes(row.dataset.fieldRow);
   });
+  updateDownloadLabels();
   render();
 }
 $("template").addEventListener("change", applyTemplate);
@@ -623,17 +668,108 @@ tabs.forEach((t, i) => {
 
 document.querySelectorAll("[data-download]").forEach((btn) => btn.addEventListener("click", download));
 
+function updateDownloadLabels(text) {
+  const video = isVideo() && template.usesPhoto;
+  const label = text || (video ? "Download video" : "Download JPEG");
+  $("size").textContent = `Output: ${W} × ${H} px ${video ? "video" : "JPEG"}`;
+  document.querySelectorAll("[data-download]").forEach((btn) => {
+    btn.textContent = label;
+    btn.disabled = exporting;
+  });
+}
+
+// MP4 is what Instagram needs; WebM is the fallback where a browser can't record MP4.
+function videoMimeType() {
+  if (!window.MediaRecorder) return null;
+  return ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4",
+          "video/webm;codecs=vp9,opus", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+}
+
+function saveBlob(blob, ext) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = slug($("heading").value) + (H === FORMATS.story.h ? "-story" : "") + "." + ext;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const once = (el, event) => new Promise((resolve) => el.addEventListener(event, resolve, { once: true }));
+
+// Plays the video once from the start, recording the canvas and the video's sound as it goes.
+async function exportVideo() {
+  const mimeType = videoMimeType();
+  if (!mimeType) {
+    alert("This browser can't record video. Try the latest Chrome, Edge or Safari.");
+    return;
+  }
+  const video = photo;
+  // Sound is routed into the recording only, not the speakers. A browser only allows this
+  // routing to be set up once per video, and the audio context has to start inside the click.
+  video._audio ??= (() => {
+    const ac = new AudioContext();
+    const dest = ac.createMediaStreamDestination();
+    ac.createMediaElementSource(video).connect(dest);
+    return { ac, dest };
+  })();
+  video._audio.ac.resume();
+
+  exporting = true;
+  updateDownloadLabels("Exporting… 0%");
+  $("form").inert = $("stage").inert = true;
+  const end = Math.min(video.duration, MAX_VIDEO_SECONDS);
+  let recorder;
+  try {
+    video.pause();
+    video.loop = false;
+    video.muted = false;
+    video.currentTime = 0;
+    await once(video, "seeked");
+    render(true);
+
+    const stream = canvas.captureStream(30);
+    video._audio.dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const stopped = once(recorder, "stop");
+    recorder.start(250);
+    await video.play();
+
+    // Frames are drawn on screen refreshes, so the tab has to stay visible while exporting.
+    await new Promise((resolve) => {
+      const frame = () => {
+        render(true);
+        const pct = Math.min(99, Math.round((video.currentTime / end) * 100));
+        updateDownloadLabels(`Exporting… ${pct}% (keep this tab open)`);
+        if (video.ended || video.currentTime >= end) return resolve();
+        requestAnimationFrame(frame);
+      };
+      frame();
+    });
+    recorder.stop();
+    await stopped;
+    saveBlob(new Blob(chunks, { type: mimeType }), mimeType.startsWith("video/mp4") ? "mp4" : "webm");
+  } catch (err) {
+    if (recorder?.state === "recording") recorder.stop();
+    alert("The video couldn't be exported in this browser. " + (err?.message || ""));
+  } finally {
+    exporting = false;
+    $("form").inert = $("stage").inert = false;
+    video.muted = true;
+    video.loop = true;
+    video.currentTime = 0;
+    video.play().catch(() => {});
+    updateDownloadLabels();
+    playLoop();
+  }
+}
+
 function download() {
   closeEditor();
+  if (isVideo() && template.usesPhoto) return exportVideo();
   // toBlob copies the canvas straight away, so the preview can be restored right after.
   render(true);
-  canvas.toBlob((blob) => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = slug($("heading").value) + (H === FORMATS.story.h ? "-story" : "") + ".jpg";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  }, "image/jpeg", 0.92);
+  canvas.toBlob((blob) => saveBlob(blob, "jpg"), "image/jpeg", 0.92);
   render();
 }
 
@@ -661,7 +797,7 @@ function applyFormat() {
   const thumb = $("thumb");
   thumb.height = Math.round(thumb.width * H / W);
   $("stage").style.setProperty("--ratio", W / H);
-  $("size").textContent = `Output: ${W} × ${H} px JPEG`;
+  updateDownloadLabels();
   render();
 }
 document.querySelectorAll('input[name="format"]').forEach((r) => r.addEventListener("change", applyFormat));
