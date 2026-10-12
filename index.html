@@ -126,7 +126,9 @@
   }
   .size { color: var(--muted); font-size: 13px; margin-top: 8px; }
   /* Taller formats get narrower so the whole preview fits on screen. */
-  .stage { position: relative; width: 100%; max-width: min(640px, calc((100vh - 120px) * var(--ratio, 0.8))); }
+  .stage { position: relative; isolation: isolate; width: 100%; max-width: min(640px, calc((100vh - 120px) * var(--ratio, 0.8))); }
+  /* Inset so the preview's rounded corners don't reveal it. */
+  .source-video { position: absolute; inset: 12px; width: calc(100% - 24px); height: calc(100% - 24px); object-fit: cover; z-index: -1; pointer-events: none; }
   .segmented { grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
   .segmented legend { margin-bottom: 4px; }
   .segmented label {
@@ -571,12 +573,25 @@ let exporting = false;
 function loadVideo(src) {
   return new Promise((resolve, reject) => {
     const video = document.createElement("video");
-    // Muted and inline so browsers, including iOS Safari, allow it to play on its own.
-    Object.assign(video, { src, muted: true, loop: true, playsInline: true, preload: "auto" });
-    video.onloadeddata = () => resolve(video);
-    video.onerror = reject;
+    // Muted and inline (as attributes too) so browsers, including iOS Safari, let it play on its own.
+    for (const attr of ["muted", "loop", "playsinline", "autoplay"]) video.setAttribute(attr, "");
+    Object.assign(video, { muted: true, loop: true, playsInline: true, preload: "auto" });
+    // Safari only supplies frames for a video that's in the page and on screen, so it sits
+    // directly behind the preview canvas, which covers it.
+    video.className = "source-video";
+    $("stage").prepend(video);
+    const timer = setTimeout(() => reject(new Error("timeout")), 20000);
+    video.addEventListener("loadeddata", () => { clearTimeout(timer); resolve(video); }, { once: true });
+    video.addEventListener("error", () => { clearTimeout(timer); video.remove(); reject(video.error); }, { once: true });
+    video.src = src;
+    // iOS Safari doesn't load anything until playback starts, so start it straight away.
+    video.play().catch(() => {});
   });
 }
+
+// Some browsers can't decode a file's picture (often iPhone HEVC video) but still load its sound.
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm|ogv|3gp)$/i;
+const isVideoFile = (file) => file.type.startsWith("video/") || VIDEO_EXT.test(file.name);
 
 // While a video is loaded, redraw every frame so the preview plays.
 let playing = false;
@@ -592,13 +607,23 @@ $("image").addEventListener("change", async (e) => {
   if (!file) return;
   const url = URL.createObjectURL(file);
   const wasVideo = isVideo() ? photo : null;
+  const asVideo = isVideoFile(file);
+  let media;
   try {
-    photo = file.type.startsWith("video/") ? await loadVideo(url) : await loadImage(url);
+    media = asVideo ? await loadVideo(url) : await loadImage(url);
   } catch {
-    alert("That file could not be read as an image or video.");
+    alert(asVideo
+      ? "This browser can't play that video. iPhone videos are often in HEVC format: try Safari, or set the iPhone camera to record in \"Most Compatible\" format (Settings → Camera → Formats)."
+      : "That file could not be read as an image.");
     return;
   }
-  if (wasVideo) { wasVideo.pause(); URL.revokeObjectURL(wasVideo.src); }
+  if (asVideo && !media.videoWidth) {
+    media.remove();
+    alert("This browser can play that video's sound but not its picture. iPhone videos are often in HEVC format: try Safari, or set the iPhone camera to record in \"Most Compatible\" format (Settings → Camera → Formats).");
+    return;
+  }
+  photo = media;
+  if (wasVideo) { wasVideo.pause(); wasVideo.remove(); URL.revokeObjectURL(wasVideo.src); }
   $("zoom").value = 1; $("posX").value = 50; $("posY").value = 50;
   if (isVideo()) {
     photo.play().catch(() => {});
@@ -655,6 +680,8 @@ function selectTab(tab) {
   });
   document.querySelector(".app").dataset.tab = tab.id.replace("tab-", "");
   window.scrollTo(0, 0);
+  // Safari pauses a video while it's hidden on the other tab, so restart it on the way back.
+  if (isVideo() && !exporting) photo.play().catch(() => {});
 }
 tabs.forEach((t, i) => {
   t.addEventListener("click", () => selectTab(t));
