@@ -125,7 +125,23 @@
     box-shadow: 0 8px 32px rgba(0,0,0,.18);
   }
   .size { color: var(--muted); font-size: 13px; margin-top: 8px; }
-  .stage { position: relative; width: 100%; max-width: 640px; }
+  /* Taller formats get narrower so the whole preview fits on screen. */
+  .stage { position: relative; width: 100%; max-width: min(640px, calc((100vh - 120px) * var(--ratio, 0.8))); }
+  .segmented { grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; }
+  .segmented legend { margin-bottom: 4px; }
+  .segmented label {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 6px;
+    text-align: center;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .segmented label span { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+  .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+  .segmented label:has(input:checked) { background: var(--accent); color: var(--accent-text); }
+  .segmented label:has(input:checked) span { color: inherit; opacity: .85; }
+  .segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .hit {
     position: absolute;
     padding: 0;
@@ -167,7 +183,7 @@
   </div>
   <section id="details-panel" role="tabpanel" aria-labelledby="tab-details">
     <h1>Social post builder</h1>
-    <p class="intro">Click the text on the preview to edit it, or use the fields below. Then download a 1080 × 1350 JPEG.</p>
+    <p class="intro">Click the text on the preview to edit it, or use the fields below. Then download it as a JPEG.</p>
     <form id="form" autocomplete="off">
       <label>Template
         <select id="template">
@@ -176,6 +192,11 @@
           <option value="message">Message</option>
         </select>
       </label>
+      <fieldset class="segmented">
+        <legend>Format</legend>
+        <label><input type="radio" name="format" value="post" checked> Post <span>1080 × 1350</span></label>
+        <label><input type="radio" name="format" value="story"> Story <span>1080 × 1920</span></label>
+      </fieldset>
       <div class="group" data-photo-controls>
         <label>Image
           <input type="file" id="image" accept="image/*">
@@ -210,13 +231,21 @@
       <textarea class="editor" id="editor" hidden spellcheck="true"></textarea>
     </div>
     <button type="button" class="mobile-download" data-download>Download JPEG</button>
-    <p class="size">Output: 1080 × 1350 px JPEG</p>
+    <p class="size" id="size">Output: 1080 × 1350 px JPEG</p>
   </section>
 </main>
 
 <script>
-const W = 1080, H = 1350;
+const W = 1080;
 const SHADOW = { y: 11.077, blur: 55.385, colour: "rgba(0,0,0,0.2)" };
+
+// Post is the size the Figma frames were designed at. Story adds height, and its inset
+// keeps the logo and text clear of the app's own controls at the top and bottom.
+const FORMATS = {
+  post:  { h: 1350, inset: 0 },
+  story: { h: 1920, inset: 150 },
+};
+let H = FORMATS.post.h, INSET = FORMATS.post.inset;
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
@@ -224,8 +253,8 @@ const $ = (id) => document.getElementById(id);
 
 let photo = null;
 const logo = new Image();
-const leaves = new Image();
 const splitMask = new Image();
+let leafShapes = []; // Message template leaves: { path, fill, cy }
 
 // Each template sets its fields, text styles, background and where its text blocks sit.
 // place() gets the laid-out blocks (keyed by field) and returns each block's top edge.
@@ -252,7 +281,7 @@ const TEMPLATES = {
       ctx.fillRect(0, 0, W, H);
       // Logo SVG is 112.758 square in a 110.769 tall slot at the top padding.
       if (logo.complete && logo.naturalWidth) {
-        ctx.drawImage(logo, (W - 112.758) / 2, 100 - (112.758 - 110.769) / 2, 112.758, 112.758);
+        ctx.drawImage(logo, (W - 112.758) / 2, 100 + INSET - (112.758 - 110.769) / 2, 112.758, 112.758);
       }
     },
     place: (blocks) => stackFromBottom(blocks, 40),
@@ -307,25 +336,33 @@ const TEMPLATES = {
       ctx.fillStyle = "#2e4b3c";
       ctx.fillRect(0, 0, W, H);
     },
-    // Leaves sit above the text in Figma.
+    // Leaves sit above the text in Figma, in a 1255.244 tall group at (46, 45).
+    // In a taller frame each leaf moves to keep its relative position, without being resized.
     drawForeground() {
-      if (leaves.complete && leaves.naturalWidth) ctx.drawImage(leaves, 46, 45, 967.304, 1255.244);
+      const stretch = (1255.244 + H - 1350) / 1255.244;
+      for (const leaf of leafShapes) {
+        ctx.save();
+        ctx.translate(46, 45 + leaf.cy * (stretch - 1));
+        ctx.fillStyle = leaf.fill;
+        ctx.fill(leaf.path);
+        ctx.restore();
+      }
     },
-    // Heading is centred in the frame; the CTA's cap height starts at y 1115.
+    // Heading is centred in the frame; the CTA's cap height starts 235 above the bottom (y 1115 in a post).
     place(blocks) {
       const tops = {};
       if (blocks.heading) tops.heading = (H - blocks.heading.height) / 2;
-      if (blocks.cta) tops.cta = 1115;
+      if (blocks.cta) tops.cta = H - 235 - INSET;
       return tops;
     },
   },
 };
 
-// Stacks text blocks upwards from the bottom padding (100), with a fixed gap between them.
+// Stacks text blocks upwards from the bottom padding (100, plus the format's inset), with a fixed gap.
 function stackFromBottom(blocks, gap) {
   const list = Object.values(blocks);
   const total = list.reduce((sum, b) => sum + b.height, 0) + gap * (list.length - 1);
-  let y = H - 100 - total;
+  let y = H - 100 - INSET - total;
   const tops = {};
   for (const b of list) { tops[b.name] = y; y += b.height + gap; }
   return tops;
@@ -436,7 +473,7 @@ function render(forExport = false) {
   const tops = template.place(blocks);
 
   // Backgrounds can respond to where the text starts (the bottom padding if there is no text).
-  const textTop = Math.min(H - 100, ...Object.values(tops));
+  const textTop = Math.min(H - 100 - INSET, ...Object.values(tops));
   ctx.clearRect(0, 0, W, H);
   template.drawBackground(textTop);
 
@@ -593,27 +630,56 @@ function download() {
   canvas.toBlob((blob) => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = slug($("heading").value) + ".jpg";
+    a.download = slug($("heading").value) + (H === FORMATS.story.h ? "-story" : "") + ".jpg";
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }, "image/jpeg", 0.92);
   render();
 }
 
+// Reads each leaf of the Message template's SVG as its own shape, so leaves can be moved individually.
+async function loadLeaves() {
+  const text = await (await fetch("assets/leaves.svg")).text();
+  const svg = document.importNode(new DOMParser().parseFromString(text, "image/svg+xml").documentElement, true);
+  // getBBox needs the SVG in the page; it stays invisible and is removed straight after.
+  svg.style.cssText = "position:absolute;left:-9999px;visibility:hidden";
+  document.body.append(svg);
+  leafShapes = [...svg.querySelectorAll("path")].map((p) => {
+    const box = p.getBBox();
+    return { path: new Path2D(p.getAttribute("d")), fill: p.getAttribute("fill"), cy: box.y + box.height / 2 };
+  });
+  svg.remove();
+}
+
+// Switches between Post and Story sizes.
+function applyFormat() {
+  const format = FORMATS[document.querySelector('input[name="format"]:checked').value];
+  closeEditor();
+  H = format.h;
+  INSET = format.inset;
+  canvas.height = H;
+  const thumb = $("thumb");
+  thumb.height = Math.round(thumb.width * H / W);
+  $("stage").style.setProperty("--ratio", W / H);
+  $("size").textContent = `Output: ${W} × ${H} px JPEG`;
+  render();
+}
+document.querySelectorAll('input[name="format"]').forEach((r) => r.addEventListener("change", applyFormat));
+
 (async function init() {
   logo.src = "assets/logo.svg";
-  leaves.src = "assets/leaves.svg";
   splitMask.src = "assets/split-mask.png";
   await Promise.all([
-    leaves.decode().catch(() => {}),
+    loadLeaves().catch(() => {}),
     splitMask.decode().catch(() => {}),
     document.fonts.load('80px "Wilden"'),
     document.fonts.load('40px "PT Serif"'),
     logo.decode().catch(() => {}),
     loadImage("assets/sample.jpg").then((img) => { photo = img; }).catch(() => {}),
   ]);
-  // Browsers can restore the dropdown's last choice on reload.
+  // Browsers can restore the last template and format choices on reload.
   applyTemplate();
+  applyFormat();
 })();
 </script>
 </body>

@@ -2,6 +2,10 @@
 
 A static page that builds a 1080 × 1350 social post from the Figma frame "Full bleed date" and downloads it as a JPEG. Everything runs in the browser, so no images are uploaded anywhere.
 
+## Formats
+
+The Format toggle switches between **Post** (1080 × 1350, the size the Figma frames were designed at) and **Story** (1080 × 1920). In Story, the logo and text sit a further 150px in from the top and bottom, clear of Instagram's story controls. Photos fill the extra height, and the Message template's leaves are spaced out to fill the taller frame without being resized. Both sizes are set in `FORMATS` in `index.html`.
+
 ## Templates
 
 Pick one from the Template dropdown. Each one is defined in the `TEMPLATES` object in `index.html`.
